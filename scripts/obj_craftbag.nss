@@ -145,6 +145,7 @@ int CnrBagItemIsCraftBag(object item)
     {
         return FALSE; // This isn't a crafting bag, nothing to do here
     }
+    return TRUE;
 }
 
 int CnrBagGetMaxItemsForBag(object bag)
@@ -192,7 +193,7 @@ int CnrBagVaccuumItemsIntoBag(object container, object bag)
     int addedamount = 0;
     while(GetIsObjectValid(item) && currentcount < maxitems)
     {
-        if(CnrBagIsValidItemForBag(bag, GetTag(item)) == TRUE)
+        if(CnrBagIsValidItemForBag(bag, item) == TRUE)
         {
             addedamount = CnrBagAddItemToBag(bag, item);
             itemsadded += addedamount;
