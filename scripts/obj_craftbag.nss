@@ -13,6 +13,10 @@
 //
 /////////////////////////////////////////////////////////
 
+#include "nwnx_creature"
+#include "nwnx_object"
+#include "nwnx_alts"
+
 const int OBJ_INT_MAX = 2147483647;
 const int OBJ_MAX_ITEM_QUANTITY = 9999;
 const int OBJ_MAX_ITEM_QUANTITY_LENGTH = 4;
@@ -28,7 +32,19 @@ const int OBJ_CRAFTBAG_ENTRY_PREFIX_LENGTH = 6;
 const string OBJ_CRAFTBAG_ENTRY_DIVIDER = "||";
 const int OBJ_CRAFTBAG_ENTRY_DIVIDER_LENGTH = 2;
 
-//Struct declaration for bag entries
+const string OBJ_CRAFTBAG_MAX_ITEM_KEY = "OBJ_BAG_MAXITEMS";
+const string OBJ_CRAFTBAG_BASE_WEIGHT_KEY = "OBJ_BAG_BASE_WEIGHT";
+const string OBJ_CRAFTBAG_WEIGHT_MULT_KEY = "OBJ_BAG_WEIGHT_MULTIPLIER";
+const string OBJ_CRAFTBAG_CURRENT_WEIGHT_KEY = "OBJ_BAG_CURRENT_WEIGHT";
+
+//Struct declarations for bag entries/keys
+struct ObjBagKey
+{
+    string ResRef;
+    string Tag;
+    string Name;
+};
+
 struct ObjBagEntry
 {
     int Count;
@@ -38,12 +54,13 @@ struct ObjBagEntry
     string Description;
 };
 
-
-string ObjBagGetBagList(string type)
+// retrieves list of allowable items to be stored in a bag type
+string ObjBagGetBagList(object mod, string type)
 {
-    GetLocalString(GetModule(), OBJ_CRAFTBAG_LIST_PREFIX + type);
+    GetLocalString(mod, OBJ_CRAFTBAG_LIST_PREFIX + type);
 }
 
+// sets list of allowable items to be stored in a bag type
 void ObjBagInitList(object mod, string type, string list)
 {
     SetLocalString(mod, OBJ_CRAFTBAG_LIST_PREFIX + type, list);
@@ -71,11 +88,10 @@ int ObjBagGetCountFromBagEntryText(string entry)
     return StringToInt(GetStringLeft(entry, OBJ_MAX_ITEM_QUANTITY_LENGTH));
 }
 
-// Parses a key/value pair for a bag item entry, and returns the entry struct
-struct ObjBagEntry ObjBagParseBagEntry(string key, string entrytext)
+//Parse an item key
+struct ObjBagKey ObjBagParseBagItemKey(string key)
 {
-    struct ObjBagEntry entry;
-    entry.Count = ObjBagGetCountFromBagEntryText(entrytext);
+    struct ObjBagKey entry;
 
     int parseloc = OBJ_CRAFTBAG_ENTRY_PREFIX_LENGTH;
     int div = FindSubString(key, OBJ_CRAFTBAG_ENTRY_DIVIDER, parseloc);
@@ -90,6 +106,22 @@ struct ObjBagEntry ObjBagParseBagEntry(string key, string entrytext)
     parseloc = div + OBJ_CRAFTBAG_ENTRY_DIVIDER_LENGTH;
 
     entry.Name = GetSubString(key, parseloc, OBJ_INT_MAX);
+
+    return entry;
+}
+
+// Parses a key/value pair for a bag item entry, and returns the entry struct
+struct ObjBagEntry ObjBagParseBagEntry(string key, string entrytext)
+{
+    struct ObjBagEntry entry;
+    struct ObjBagKey itemkey;
+
+    itemkey = ObjBagParseBagItemKey(key);
+
+    entry.Count = ObjBagGetCountFromBagEntryText(entrytext);
+    entry.ResRef = itemkey.ResRef;
+    entry.Tag = itemkey.Tag
+    entry.Name = itemkey.Name;
     entry.Description = GetSubString(entrytext, OBJ_MAX_ITEM_QUANTITY_LENGTH, OBJ_INT_MAX);
 
     return entry;
@@ -99,6 +131,21 @@ struct ObjBagEntry ObjBagParseBagEntry(string key, string entrytext)
 string ObjBagSerializeBagEntryText(struct ObjBagEntry entry)
 {
     return IntToString(entry.Count) + entry.Description;
+}
+
+// checks if a key is an item entry key, returns true if it is, false otherwise
+int ObjBagIsBagEntryKey(string key)
+{
+    iskey = FALSE;
+
+    string prefix = GetSubString(key, 0, OBJ_CRAFTBAG_ENTRY_PREFIX_LENGTH);
+
+    if(prefix == OBJ_CRAFTBAG_ENTRY_PREFIX)
+    {
+        iskey = TRUE;
+    }
+
+    return iskey;
 }
 
 // generates the key for an entry
@@ -123,7 +170,7 @@ int ObjBagIsValidTagForBag(string bag, string item)
         return FALSE; // something went wrong, this is not a bag
     }
 
-    string list = ObjBagGetBagList(type);
+    string list = ObjBagGetBagList(GetModule(), type);
     int index = FindSubString(list, item);
     if(index == -1) {return FALSE;}
     return TRUE;
@@ -148,28 +195,91 @@ int ObjBagItemIsCraftBag(object item)
     return TRUE;
 }
 
+// Sets the max item count for the entire bag
+void ObjBagSetMaxItemsForBag(object bag, int max)
+{
+    SetLocalInt(bag, OBJ_CRAFTBAG_MAX_ITEM_KEY, max);
+}
+
+// gets the max item count the bag allows for all contained items
 int ObjBagGetMaxItemsForBag(object bag)
 {
-    return 500;
+    return GetLocalInt(bag, OBJ_CRAFTBAG_MAX_ITEM_KEY);
+}
+
+// gets the stored value for what the current bag weight should be
+float ObjBagGetCurrentBagWeight(object bag)
+{
+    return GetLocalInt(bag, OBJ_CRAFTBAG_CURRENT_WEIGHT_KEY);
+}
+
+// Stored as a float, so that small, < 0.1 weight additions are not lost
+void ObjBagSetCurrentBagWeight(object bag, float weight)
+{
+    SetLocalFloat(bag, OBJ_CRAFTBAG_CURRENT_WEIGHT_KEY, weight);
+}
+
+// Gets the bag's weight multiplier. 0.5 would halve all added weight.
+float ObjBagGetBagWeightMultiplier(object bag)
+{
+    return GetLocalFloat(bag, OBJ_CRAFTBAG_WEIGHT_MULT_KEY);
+}
+
+// Sets the bag's weight multiplier. 0.5 would halve all added weight.
+void ObjBagSetBagWeightMultiplier(object bag, float weight)
+{
+    SetLocalFloat(bag, OBJ_CRAFTBAG_WEIGHT_MULT_KEY, weight);
 }
 
 // returns total count of all items in the bag
-int ObjBagGetCurrentItemsInBag(object bag)
+int ObjBagGetCurrentItemsCountInBag(object bag)
 {
-    return -1;
+    int count = 0;
+
+    int vars = NWNX_Object_GetLocalVariableCount(bag);
+
+    string key;
+    int i;
+    for(i = 0; i < vars; i++)
+    {
+        key = NWNX_Object_GetLocalVariable(bag, i);
+
+        if(ObjBagIsBagEntryKey(key) == FALSE)
+        {
+            continue;
+        }
+
+        string entrytext = GetLocalString(bag, key);
+
+        count = count + ObjBagGetCountFromBagEntryText(entrytext);
+    }
+
+    return count;
 }
 
 // returns the count of items currently in the bag for a given item
 int ObjBagItemCountInBag(object bag, object item)
 {
-    return -1;
+    int count = 0;
+
+    string itemkey = ObjBagGenBagEntryKeyForItem(item);
+
+    string entrytext = GetLocalString(bag, itemkey);
+
+    if(entrytext != "")
+    {
+        count = ObjBagGetCountFromBagEntryText(entrytext);
+    }
+
+    return count;
 }
 
 // Adds the item to the bag, returns amount of the stack added to the bag, or 0 for failure
 // Does not check for validity, you should check first with ObjBagIsValidItemForBag()
 int ObjBagAddItemToBag(object bag, object item)
 {
-    return 0;
+    int added = 0;
+    return added;
 }
 
 // Removes amount quantity of the item matching the key from the bag.
@@ -177,7 +287,8 @@ int ObjBagAddItemToBag(object bag, object item)
 // If amount is -1, remove 1 stack, if amount is OBJ_INT_MAX, remove all of the item
 int ObjBagRemoveItemFromBag(object bag, object addTo, string key, int amount)
 {
-    return 0;
+    int removed = 0;
+    return removed;
 }
 
 // Iterates inventory and adds all valid items to the bag until it is full or all valid items are vaccuumed
@@ -223,7 +334,7 @@ int ObjBagActivated(object player, object bag, object target)
 
     if(ObjBagIsValidItemForBag(bag, tag) == TRUE)
     {
-        int added = AddItemToBag(bag, target);
+        int added = ObjBagAddItemToBag(bag, target);
 
         if(added = 0)
         {
