@@ -118,11 +118,20 @@ struct ObjBagEntry ObjBagParseBagEntry(string key, string entrytext)
 
     itemkey = ObjBagParseBagItemKey(key);
 
-    entry.Count = ObjBagGetCountFromBagEntryText(entrytext);
     entry.ResRef = itemkey.ResRef;
     entry.Tag = itemkey.Tag
     entry.Name = itemkey.Name;
-    entry.Description = GetSubString(entrytext, OBJ_MAX_ITEM_QUANTITY_LENGTH, OBJ_INT_MAX);
+
+    if(entrytext != "")
+    {
+        entry.Count = ObjBagGetCountFromBagEntryText(entrytext);
+        entry.Description = GetSubString(entrytext, OBJ_MAX_ITEM_QUANTITY_LENGTH, OBJ_INT_MAX);
+    }
+    else
+    {
+        entry.Count = 0;
+        entry.Description = "";
+    }
 
     return entry;
 }
@@ -158,6 +167,13 @@ string ObjBagGenerateBagEntryKey(struct ObjBagEntry entry)
 string ObjBagGenBagEntryKeyForItem(object item)
 {
     return OBJ_CRAFTBAG_ENTRY_PREFIX + GetResRef(item) + OBJ_CRAFTBAG_ENTRY_DIVIDER + GetTag(item) + OBJ_CRAFTBAG_ENTRY_DIVIDER + GetName(item);
+}
+
+void ObjBagSetBagEntry(object bag, struct ObjBagEntry entry)
+{
+    string key = ObjBagGenerateBagEntryKey(entry);
+    string text = ObjBagSerializeBagEntryText(entry);
+    SetLocalString(bag, key, text);
 }
 
 // parses the given tag for the bag, and checks the item tag provided to see if it is a valid item type for the bag
@@ -274,11 +290,141 @@ int ObjBagItemCountInBag(object bag, object item)
     return count;
 }
 
+void ObjBagStripWeightProperties(object bag)
+{
+    itemproperty prop = GetFirstItemProperty(bag);
+    while (GetIsItemPropertyValid(prop)) 
+    {
+        if (GetItemPropertyType(prop) == ITEM_PROPERTY_WEIGHT_INCREASE) 
+        {
+            RemoveItemProperty(bag, prop);
+        } 
+        prop = GetNextItemProperty(bag);
+    }
+}
+
+void ObjBagAddWeightProperties(object bag)
+{
+    float ratio = ObjBagGetBagWeightMultiplier(bag);
+    float weight = ObjBagGetCurrentBagWeight(bag);
+    int newWeight = FloatToInt(weight * ratio);
+
+    int baseweight = GetWeight(bag);
+    int remaining = newWeight - baseweight;
+
+    while (remaining >= 1000) 
+    {
+      AddItemProperty(DURATION_TYPE_PERMANENT, ItemPropertyWeightIncrease(IP_CONST_WEIGHTINCREASE_100_LBS), bag);
+      remaining = remaining - 1000;
+    }
+
+    while (remaining >= 500) 
+    {
+      AddItemProperty(DURATION_TYPE_PERMANENT, ItemPropertyWeightIncrease(IP_CONST_WEIGHTINCREASE_50_LBS), bag);
+      remaining = remaining - 500;
+    }
+
+    while (remaining >= 300) 
+    {
+      AddItemProperty(DURATION_TYPE_PERMANENT, ItemPropertyWeightIncrease(IP_CONST_WEIGHTINCREASE_30_LBS), bag);
+      remaining = remaining - 300;
+    }
+
+    while (remaining >= 150) 
+    {
+      AddItemProperty(DURATION_TYPE_PERMANENT, ItemPropertyWeightIncrease(IP_CONST_WEIGHTINCREASE_15_LBS), bag);
+      remaining = remaining - 150;
+    }
+
+    while (remaining >= 100) 
+    {
+      AddItemProperty(DURATION_TYPE_PERMANENT, ItemPropertyWeightIncrease(IP_CONST_WEIGHTINCREASE_10_LBS), bag);
+      remaining = remaining - 100;
+    }
+
+    while (remaining >= 50) 
+    {
+      AddItemProperty(DURATION_TYPE_PERMANENT, ItemPropertyWeightIncrease(IP_CONST_WEIGHTINCREASE_5_LBS), bag);
+      remaining = remaining - 50;
+    }
+}
+
+// checks the current weight of the bag and sets the actual weight to within 5 lbs of the target weight based on the weight multiplier of the bag.
+void ObjBagUpdateRealWeight(object bag)
+{
+    // clear all weight modifiers
+    ObjBagStripWeightProperties(bag);
+
+    //Delay adding properties as stripping old properties is not done until script completion
+    DelayCommand(0.1, ObjBagAddWeightProperties(bag));
+}
+
+// util function to both set the current weight variable and update the real weight with it
+void ObjBagSetAndUpdateCurrentWeight(object bag, float weight)
+{
+    ObjBagSetCurrentBagWeight(bag, weight);
+    ObjBagUpdateRealWeight(bag);
+}
+
+struct ObjBagEntry ObjBagGetEntryForItem(object bag, object item)
+{
+    string key = ObjBagGenBagEntryKeyForItem(item);
+    string text = GetLocalString(bag, key);
+    return ObjBagParseBagEntry(key, text);
+}
+
 // Adds the item to the bag, returns amount of the stack added to the bag, or 0 for failure
 // Does not check for validity, you should check first with ObjBagIsValidItemForBag()
 int ObjBagAddItemToBag(object bag, object item)
 {
     int added = 0;
+
+    int currentcount = ObjBagGetCurrentItemsCountInBag(bag);
+    int maxitems = ObjBagGetMaxItemsForBag(bag);
+
+    if(currentcount >= maxitems)
+    {
+        return added; // we can't add the item
+    }
+    
+    int currentitemcount = ObjBagItemCountInBag(bag, item);
+    int stacksize = GetItemStackSize(item);
+    int amountToAdd = stacksize;
+
+    if(currentcount + stacksize > maxitems)
+    {
+        amountToAdd = maxitems - currentcount;
+    }
+
+    int newStackSize = stacksize - amountToAdd;
+    int itemweight = GetWeight(item);
+    float weightperitem = IntToFloat(itemweight) / IntToFloat(stacksize);
+    float currentBagWeight = ObjBagGetCurrentBagWeight(bag);
+    float newWeight = currentBagWeight + (amountToAdd * weightperitem);
+
+    struct ObjBagEntry entry = ObjBagGetEntryForItem(bag, item);
+
+    entry.Count = entry.Count + amountToAdd;
+
+    if(entry.Description == "")
+    {
+        entry.Description = GetDescription(item);
+    }
+
+    ObjBagSetBagEntry(bag, entry);
+
+    if(newStackSize == 0)
+    {
+        AssignCommand(item, SetIsDestroyable(TRUE));
+        DestroyObject(item);
+    }
+    else
+    {
+        SetItemStackSize(item, newStackSize);
+    }
+
+    ObjBagSetAndUpdateCurrentWeight(bag, newWeight);
+
     return added;
 }
 
