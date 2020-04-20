@@ -1,6 +1,6 @@
 /////////////////////////////////////////////////////////
 //
-//  Craftable Natural Resources (OBJ) by Festyx
+//  Crafting Component Bags
 //
 //  Name:  obj_craftbag
 //
@@ -525,6 +525,37 @@ int ObjBagRemoveItemFromBag(object bag, object addTo, string key, int amount)
 int ObjBagRemoveAllItems(object bag, object addTo)
 {
     int removed = 0;
+    string key;
+    int i;
+    for(i = 0; i < vars; i++)
+    {
+        key = NWNX_Object_GetLocalVariable(bag, i);
+
+        if(ObjBagIsBagEntryKey(key) == FALSE)
+        {
+            continue;
+        }
+
+        struct ObjBagKey bagkey = ObjBagParseBagItemKey(key);
+
+        if(bagkey.Tag != tag)
+        {
+            continue;
+        }
+
+        string entrytext = GetLocalString(bag, key);
+
+        int count = ObjBagGetCountFromBagEntryText(entrytext);
+
+        int taken = ObjBagRemoveItemFromBag(bag, addTo, key, OBJ_INT_MAX);
+
+        removed = removed + taken;
+
+        if(taken < count)
+        {
+            break; // we failed to remove all of it, so the target inventory is full, stop trying to remove items.
+        }
+    }
     return removed;
 }
 
