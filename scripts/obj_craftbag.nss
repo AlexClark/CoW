@@ -5,11 +5,58 @@
 //  Name:  obj_craftbag
 //
 //  Desc:  This is a custom handler for crafting bag containers
-//         ObjectTag based activation logic.
+//
 //         Handles loading object tags that can be stored in the bag,
 //         and storing and removing said items.
 //
 //  Author: Alex Clark 13APR20
+//
+/////////////////////////////////////////////////////////
+
+
+/////////////////////////////////////////////////////////
+//         --------  API for CraftBags  --------
+//
+// Bag ObjectTag Information:
+//   CraftBags must have an ObjectTag beginning with 'OBJ_BAG_' and ending with the text you wish to use for the bag type.
+//   Ex. OBJ_BAG_HERB will be considered a valid CraftBag by the API, and use the 'HERB' valid list of item tags.
+//
+// void ObjBagInit()
+//   - Should be called on module startup to populate valid item lists.
+//   - Edit this function with the tags you want to allow a given bag type to store.
+//
+// int ObjBagItemIsCraftBag(object item)
+//   - Checks if the given item is a CraftBag. Returns true if it is.
+//
+// int ObjBagIsValidItemForBag(object bag, object item)
+//   - Checks if an item can be added to a given CraftBag. Returns true if the item can be added.
+//
+// string ObjBagGenBagEntryKeyForItem(object item)
+//   - Returns a key value for the given item
+//
+// struct ObjBagEntry ObjBagGetEntryForItem(object bag, object item)
+//   - Returns the entry information for the storage of the bag for the given item.
+//
+// int ObjBagCountItemsInBagByTag(object bag, string tag)
+//   - Counts up all entries for a given item tag and returns the total number of items stored with that tag.
+//
+// int ObjBagActivated(object player, object bag, object target)
+//   - Call when activating the bag. Returns true if a conversation with the bag should be started to manage the bag.
+//
+// int ObjBagVaccuumItemsIntoBag(object container, object bag)
+//   - Call to pull all valid items from the container/player into the bag or until the bag is full.
+//   - Returns the number of items added to the bag.
+//
+// int ObjBagAddItemToBag(object bag, object item)
+//   - Adds the given item to the bag. Returns the number of items in the stack added
+//
+// int ObjBagRemoveItemFromBag(object bag, object addTo, string key, int amount)
+//   - Removes a quantity of items from the bag placing them into the specified container. Returns the number of items removed.
+//   - If amount is OBJ_INT_MAX, all of the item will be removed. If -1 is given, 1 full stack will be removed.
+//
+// int ObjBagRemoveAllItems(object bag, object addTo)
+//   - Removes all items from the bag and places them into the specified object's inventory.
+//   - return the number of items removed, which may indicate some items were not removed if the target's inventory became full.
 //
 /////////////////////////////////////////////////////////
 
@@ -169,6 +216,7 @@ string ObjBagGenBagEntryKeyForItem(object item)
     return OBJ_CRAFTBAG_ENTRY_PREFIX + GetResRef(item) + OBJ_CRAFTBAG_ENTRY_DIVIDER + GetTag(item) + OBJ_CRAFTBAG_ENTRY_DIVIDER + GetName(item);
 }
 
+// stores the given bag entry into the local variables of the given bag.
 void ObjBagSetBagEntry(object bag, struct ObjBagEntry entry)
 {
     string key = ObjBagGenerateBagEntryKey(entry);
@@ -290,6 +338,7 @@ int ObjBagItemCountInBag(object bag, object item)
     return count;
 }
 
+// internal method for updating bag weight. strips away all weight additions.
 void ObjBagStripWeightProperties(object bag)
 {
     itemproperty prop = GetFirstItemProperty(bag);
@@ -303,6 +352,7 @@ void ObjBagStripWeightProperties(object bag)
     }
 }
 
+// internal method for updating bag weight. Adds weight until target weight is reached (5 lbs increments)
 void ObjBagAddWeightProperties(object bag)
 {
     float ratio = ObjBagGetBagWeightMultiplier(bag);
@@ -366,11 +416,43 @@ void ObjBagSetAndUpdateCurrentWeight(object bag, float weight)
     ObjBagUpdateRealWeight(bag);
 }
 
+// retrieves an Entry struct and fills it out from the info stored on the bag for the given item's info
 struct ObjBagEntry ObjBagGetEntryForItem(object bag, object item)
 {
     string key = ObjBagGenBagEntryKeyForItem(item);
     string text = GetLocalString(bag, key);
     return ObjBagParseBagEntry(key, text);
+}
+
+// Counts up all unique entries that match the given tag and returns the total count of items that match
+int ObjBagCountItemsInBagByTag(object bag, string tag)
+{
+    int count = 0;
+    int vars = NWNX_Object_GetLocalVariableCount(bag);
+
+    string key;
+    int i;
+    for(i = 0; i < vars; i++)
+    {
+        key = NWNX_Object_GetLocalVariable(bag, i);
+
+        if(ObjBagIsBagEntryKey(key) == FALSE)
+        {
+            continue;
+        }
+
+        struct ObjBagKey bagkey = ObjBagParseBagItemKey(key);
+
+        if(bagkey.Tag != tag)
+        {
+            continue;
+        }
+
+        string entrytext = GetLocalString(bag, key);
+
+        count = count + ObjBagGetCountFromBagEntryText(entrytext);
+    }
+    return count;
 }
 
 // Adds the item to the bag, returns amount of the stack added to the bag, or 0 for failure
@@ -423,15 +505,24 @@ int ObjBagAddItemToBag(object bag, object item)
         SetItemStackSize(item, newStackSize);
     }
 
+    added = amountToAdd;
+
     ObjBagSetAndUpdateCurrentWeight(bag, newWeight);
 
     return added;
 }
 
-// Removes amount quantity of the item matching the key from the bag.
-// Returns the amount removed.
-// If amount is -1, remove 1 stack, if amount is OBJ_INT_MAX, remove all of the item
+// Removes 'amount' quantity of the item matching the key from the bag. and adds it to the specified container
+// Returns the number of items removed.
+// If amount is -1, removes 1 stack (will calculate stack size for you)
 int ObjBagRemoveItemFromBag(object bag, object addTo, string key, int amount)
+{
+    int removed = 0;
+    return removed;
+}
+
+// dumps every single item in the bag into the inventory of addTo. May stop if inventory becomes full.
+int ObjBagRemoveAllItems(object bag, object addTo)
 {
     int removed = 0;
     return removed;
@@ -444,7 +535,6 @@ int ObjBagVaccuumItemsIntoBag(object container, object bag)
     object item = GetFirstItemInInventory(container);
     int maxitems = ObjBagGetMaxItemsForBag(bag);
 
-    int currentcount = ObjBagItemCountInBag();
     int itemsadded = 0;
 
     int addedamount = 0;
@@ -453,8 +543,7 @@ int ObjBagVaccuumItemsIntoBag(object container, object bag)
         if(ObjBagIsValidItemForBag(bag, item) == TRUE)
         {
             addedamount = ObjBagAddItemToBag(bag, item);
-            itemsadded += addedamount;
-            currentcount += addedamount;
+            itemsadded = itemsadded + addedamount;
         }
 
         item = GetNextItemInInventory();
