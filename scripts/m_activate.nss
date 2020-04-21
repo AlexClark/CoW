@@ -29,6 +29,7 @@
 #include "ar_sys_poison"
 #include "ki_wrapr_bldsgr"
 #include "ki_wrapr_thfglv"
+#include "obj_craftbag"
 
 // Runs custom behaviors associated with the item, either via tag or variable.
 void ExecuteCustomItemBehaviors();
@@ -50,6 +51,20 @@ void main()
     // (e.g. totems). TO DO: clean this up later.
     _SetIsCreatureLastSpellCastItemValid(oActivator, TRUE);
     ExecuteCustomItemBehaviors();
+
+    if (GetStringLeft (sTag, OBJ_CRAFTBAG_PREFIX_LENGTH) == OBJ_CRAFTBAG_PREFIX)
+    {
+      int doConvo = ObjBagActivated(oActivator, oItem, oTarget);
+
+      if(doConvo == TRUE)
+      {
+        SetLocalString(oActivator, "dialog", "zdlg_craftbag"); // Set the convo script
+        SetLocalObject(oActivator, OBJ_CRAFTBAG_CONV_KEY, oItem); // set the object of the convo to the bag
+        AssignCommand(oActivator, ActionStartConversation(oActivator, "zdlg_converse", TRUE, FALSE));
+      }
+
+      return;
+    }
 
     // wolfsbane
     if (sTag == "MI_WOLFSBANE")

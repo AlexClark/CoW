@@ -80,9 +80,10 @@ const string OBJ_CRAFTBAG_ENTRY_DIVIDER = "||";
 const int OBJ_CRAFTBAG_ENTRY_DIVIDER_LENGTH = 2;
 
 const string OBJ_CRAFTBAG_MAX_ITEM_KEY = "OBJ_BAG_MAXITEMS";
-const string OBJ_CRAFTBAG_BASE_WEIGHT_KEY = "OBJ_BAG_BASE_WEIGHT";
 const string OBJ_CRAFTBAG_WEIGHT_MULT_KEY = "OBJ_BAG_WEIGHT_MULTIPLIER";
 const string OBJ_CRAFTBAG_CURRENT_WEIGHT_KEY = "OBJ_BAG_CURRENT_WEIGHT";
+const string OBJ_CRAFTBAG_UPDATE_WEIGHT_KEY = "OBJ_BAG_UPDATE_WEIGHT";
+const string OBJ_CRAFTBAG_CONV_KEY = "CRAFTBAG_OBJ_CONV";
 
 //Struct declarations for bag entries/keys
 struct ObjBagKey
@@ -397,6 +398,8 @@ void ObjBagAddWeightProperties(object bag)
       AddItemProperty(DURATION_TYPE_PERMANENT, ItemPropertyWeightIncrease(IP_CONST_WEIGHTINCREASE_5_LBS), bag);
       remaining = remaining - 50;
     }
+
+    SetLocalInt(bag, OBJ_CRAFTBAG_UPDATE_WEIGHT_KEY, FALSE);
 }
 
 // checks the current weight of the bag and sets the actual weight to within 5 lbs of the target weight based on the weight multiplier of the bag.
@@ -404,6 +407,16 @@ void ObjBagUpdateRealWeight(object bag)
 {
     // clear all weight modifiers
     ObjBagStripWeightProperties(bag);
+
+    // Update could be called multiple times from the same script, we only want it updated once for performance reasons
+    int flag = GetLocalInt(bag, OBJ_CRAFTBAG_UPDATE_WEIGHT_KEY);
+
+    if(flag == TRUE)
+    {
+        return;
+    }
+
+    SetLocalInt(bag, OBJ_CRAFTBAG_UPDATE_WEIGHT_KEY, TRUE);
 
     //Delay adding properties as stripping old properties is not done until script completion
     DelayCommand(0.1, ObjBagAddWeightProperties(bag));
@@ -420,6 +433,13 @@ void ObjBagSetAndUpdateCurrentWeight(object bag, float weight)
 struct ObjBagEntry ObjBagGetEntryForItem(object bag, object item)
 {
     string key = ObjBagGenBagEntryKeyForItem(item);
+    string text = GetLocalString(bag, key);
+    return ObjBagParseBagEntry(key, text);
+}
+
+// retrieves the entry struct from the bag based on the provided key
+struct ObjBagEntry ObjBagGetEntryFromKey(object bag, string key)
+{
     string text = GetLocalString(bag, key);
     return ObjBagParseBagEntry(key, text);
 }
@@ -512,18 +532,125 @@ int ObjBagAddItemToBag(object bag, object item)
     return added;
 }
 
+// figures out the max stack size for a give entry.
+int ObjBagDiscoverStackSizeForEntryItem(object placeAt, struct ObjBagEntry entry)
+{
+    object item = CreateObject(OBJECT_TYPE_ITEM, entry.ResRef, GetLocation(placeAt), FALSE, "TEMPDISCOVERSTACKOBJ");
+
+    SetItemStackSize(item, OBJ_MAX_ITEM_QUANTITY);
+    int stack = GetItemStackSize(item);
+    DestroyObject(item);
+
+    return stack;
+}
+
+// creates an object and adds it to the specified object's inventory. Sets stack size to 'amount' if more than 1.
+// returns the generated item, or OBJECT_INVALID if the item could not be created, or the object would not fit into the inventory.
+object ObjBagGenerateItemFromEntry(object container, struct ObjBagEntry entry, int amount)
+{
+    object item = OBJECT_INVALID;
+
+    if(GetHasInventory(container) == FALSE)
+    {
+        return item; // we can't add an item to an object that has no inventory
+    }
+
+    item = CreateItemOnObject(entry.ResRef, container, amount, entry.Tag);
+
+    if(item == OBJECT_INVALID)
+    {
+        return item;
+    }
+
+    SetDescription(item, entry.Description);
+    SetName(item, entry.Name);
+
+    return item;
+}
+
 // Removes 'amount' quantity of the item matching the key from the bag. and adds it to the specified container
 // Returns the number of items removed.
 // If amount is -1, removes 1 stack (will calculate stack size for you)
 int ObjBagRemoveItemFromBag(object bag, object addTo, string key, int amount)
 {
     int removed = 0;
+
+    if(amount == 0 || amount < -1)
+    {
+        return removed; // Nothing to remove...
+    }
+
+    struct ObjBagEntry entry = ObjBagGetEntryFromKey(bag, key);
+
+    if(entry.Count == 0)
+    {
+        return 0; // the bag does not contain the item...
+    }
+
+    int amountToRemove = amount;
+
+    if(entry.Count < amountToRemove)
+    {
+        amountToRemove = entry.Count; // we can't remove more than is in the bag
+    }
+
+    int maxstack = ObjBagDiscoverStackSizeForEntryItem(addTo, entry);
+
+    if(amount == -1)
+    {
+        amountToRemove = maxstack; // when passed -1, we remove exactly 1 stack
+    }
+
+    int remaining = amountToRemove;
+    int removeAmount;
+    object genItem = OBJECT_INVALID;
+    int done = FALSE;
+    while(!done)
+    {
+        if(remaining > maxstack)
+        {
+            removeAmount = maxstack;
+        }
+        else
+        {
+            removeAmount = remaining;
+        }
+
+        genItem = ObjBagGenerateItemFromEntry(addTo, entry, removeAmount);
+
+        if(genItem == OBJECT_INVALID)
+        {
+            done = TRUE; // we can't add the item, so we should stop now.
+            break;
+        }
+
+        remaining = remaining - removeAmount;
+        removed = removed + removeAmount;
+
+        if(remaining <= 0)
+        {
+            done = TRUE;
+            break;
+        }
+    }
+
+    if(removed >= entry.Count)
+    {
+        DeleteLocalString(bag, key); // remove the entry from the bag, as all of the items for the entry were removed.
+    }
+    else
+    {
+        entry.Count = entry.Count - removed;
+        ObjBagSetBagEntry(bag, entry);
+    }
+
     return removed;
 }
 
 // dumps every single item in the bag into the inventory of addTo. May stop if inventory becomes full.
 int ObjBagRemoveAllItems(object bag, object addTo)
 {
+    int vars = NWNX_Object_GetLocalVariableCount(bag);
     int removed = 0;
     string key;
     int i;
