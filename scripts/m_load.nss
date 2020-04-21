@@ -18,6 +18,7 @@
 #include "nwnx_events"
 #include "nwnx_alts"
 #include "inc_area"
+#include "obj_craftbag"
 
 void DropPassword()
 {
@@ -235,7 +236,7 @@ void main()
     SQLExecStatement("UPDATE nwn.web_server SET state=5, startup=UNIX_TIMESTAMP(), " +
      "curr_players=0, curr_dms=0 WHERE sid=?", miXFGetCurrentServer());
 
-    // Added by Mithreas - initialize faction, playerlist, divination and deity systems --[
+    // Added by Mithreas - initialize faction, playerlist, divination, bags, and deity systems --[
     // Delayed to avoid TMI issues.
     DelayCommand(0.5, LoadJewelryChest());
     DelayCommand(1.0, miXFUnregisterAll());
@@ -244,6 +245,7 @@ void main()
     DelayCommand(5.0, gsWOSetup());
     DelayCommand(6.0, md_DoWeaponSpecific());
 	DelayCommand(7.0, miSKInitialise());
+    DelayCommand(8.0, ObjBagInit());
     // ]--
 
     NWNX_Chat_RegisterChatScript("ar_chat");
