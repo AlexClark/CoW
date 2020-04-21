@@ -29,7 +29,7 @@ void Init()
   {
     // retrieve the object name and qty from the local variables on the container object (see gvd_inc_keychain for details)
     object oPC   = GetPcDlgSpeaker();
-    object oContainer = GetLocalObject(oPC, OBJ_CRAFTBAG_CONV_KEY);
+    object bag = GetLocalObject(oPC, OBJ_CRAFTBAG_CONV_KEY);
 
     //Vacuum all items option
     AddStringElement(txtLime + "[Place all suitable inventory items into container]</c>", OBJECTOPTIONS);
@@ -37,20 +37,20 @@ void Init()
 
     // iterate bag contents, displaying options for each
     int vars = NWNX_Object_GetLocalVariableCount(bag);
-    string key;
+    struct NWNX_Object_LocalVariable key;
     int i;
     for(i = 0; i < vars; i++)
     {
         key = NWNX_Object_GetLocalVariable(bag, i);
 
-        if(ObjBagIsBagEntryKey(key) == FALSE)
+        if(ObjBagIsBagEntryKey(key.key) == FALSE)
         {
             continue;
         }
 
-        struct ObjBagKey bagkey = ObjBagParseBagItemKey(key);
+        struct ObjBagKey bagkey = ObjBagParseBagItemKey(key.key);
 
-        string entrytext = GetLocalString(bag, key);
+        string entrytext = GetLocalString(bag, key.key);
 
         int count = ObjBagGetCountFromBagEntryText(entrytext);
 
@@ -58,7 +58,7 @@ void Init()
         AddStringElement(bagkey.Name + " (" + IntToString(count) + ")", OBJECTOPTIONS);
 
         // add variable name holding resref and tag and name to list for item creation
-        AddStringElement(key, OBJECTIDS);
+        AddStringElement(key.key, OBJECTIDS);
     }
 
     // always add, a done option
@@ -105,13 +105,13 @@ void HandleSelection()
   if (page == "") 
   {
     // handle the PCs selection
-    object bag = GetLocalObject(oPC, OBJ_CRAFTBAG_CONV_KEY);
+    object bag = GetLocalObject(player, OBJ_CRAFTBAG_CONV_KEY);
     string key = GetStringElement(selection, OBJECTIDS);
     int isValidKey = ObjBagIsBagEntryKey(key);
 
     if(key == CRAFTBAG_ALL_OPTION) //loop through inventory, add items
     {
-        int added = ObjBagVaccuumItemsIntoBag(oPC, bag);
+        int added = ObjBagVacuumItemsIntoBag(player, bag);
         EndDlg();
     }
     else if(key == CRAFTBAG_DONE_OPTION) 

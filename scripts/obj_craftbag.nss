@@ -105,7 +105,7 @@ struct ObjBagEntry
 // retrieves list of allowable items to be stored in a bag type
 string ObjBagGetBagList(object mod, string type)
 {
-    GetLocalString(mod, OBJ_CRAFTBAG_LIST_PREFIX + type);
+    return GetLocalString(mod, OBJ_CRAFTBAG_LIST_PREFIX + type);
 }
 
 // sets list of allowable items to be stored in a bag type
@@ -125,7 +125,7 @@ void ObjBagInit()
         + "cnrcatnipleaf,cnrhazelleaf,cnrcalendulafwr,cnrchestnutfruit,cnrpecanfruit,cnrnettleleaf,"
         + "cnrskullcapleaf,cnrthistleleaf,cnrechinacearoot,cnrchamomilefwr");
 
-    OBJInitList(mod, "GEMS",
+    ObjBagInitList(mod, "GEMS",
         "");
 
 }
@@ -167,7 +167,7 @@ struct ObjBagEntry ObjBagParseBagEntry(string key, string entrytext)
     itemkey = ObjBagParseBagItemKey(key);
 
     entry.ResRef = itemkey.ResRef;
-    entry.Tag = itemkey.Tag
+    entry.Tag = itemkey.Tag;
     entry.Name = itemkey.Name;
 
     if(entrytext != "")
@@ -193,7 +193,7 @@ string ObjBagSerializeBagEntryText(struct ObjBagEntry entry)
 // checks if a key is an item entry key, returns true if it is, false otherwise
 int ObjBagIsBagEntryKey(string key)
 {
-    iskey = FALSE;
+    int iskey = FALSE;
 
     string prefix = GetSubString(key, 0, OBJ_CRAFTBAG_ENTRY_PREFIX_LENGTH);
 
@@ -245,7 +245,7 @@ int ObjBagIsValidTagForBag(string bag, string item)
 int ObjBagIsValidItemForBag(object bag, object item)
 {
     int ret = ObjBagIsValidTagForBag(GetTag(bag), GetTag(item));
-    if(ret == TRUE && GetDroppableFlag(target) == TRUE && GetItemCursedFlag(target) == FALSE) {return TRUE;}
+    if(ret == TRUE && GetDroppableFlag(item) == TRUE && GetItemCursedFlag(item) == FALSE) {return TRUE;}
     return FALSE;
 }
 
@@ -275,7 +275,7 @@ int ObjBagGetMaxItemsForBag(object bag)
 // gets the stored value for what the current bag weight should be
 float ObjBagGetCurrentBagWeight(object bag)
 {
-    return GetLocalInt(bag, OBJ_CRAFTBAG_CURRENT_WEIGHT_KEY);
+    return GetLocalFloat(bag, OBJ_CRAFTBAG_CURRENT_WEIGHT_KEY);
 }
 
 // Stored as a float, so that small, < 0.1 weight additions are not lost
@@ -303,18 +303,18 @@ int ObjBagGetCurrentItemsCountInBag(object bag)
 
     int vars = NWNX_Object_GetLocalVariableCount(bag);
 
-    string key;
+    struct NWNX_Object_LocalVariable key;
     int i;
     for(i = 0; i < vars; i++)
     {
         key = NWNX_Object_GetLocalVariable(bag, i);
 
-        if(ObjBagIsBagEntryKey(key) == FALSE)
+        if(ObjBagIsBagEntryKey(key.key) == FALSE)
         {
             continue;
         }
 
-        string entrytext = GetLocalString(bag, key);
+        string entrytext = GetLocalString(bag, key.key);
 
         count = count + ObjBagGetCountFromBagEntryText(entrytext);
     }
@@ -450,25 +450,25 @@ int ObjBagCountItemsInBagByTag(object bag, string tag)
     int count = 0;
     int vars = NWNX_Object_GetLocalVariableCount(bag);
 
-    string key;
+    struct NWNX_Object_LocalVariable key;
     int i;
     for(i = 0; i < vars; i++)
     {
         key = NWNX_Object_GetLocalVariable(bag, i);
 
-        if(ObjBagIsBagEntryKey(key) == FALSE)
+        if(ObjBagIsBagEntryKey(key.key) == FALSE)
         {
             continue;
         }
 
-        struct ObjBagKey bagkey = ObjBagParseBagItemKey(key);
+        struct ObjBagKey bagkey = ObjBagParseBagItemKey(key.key);
 
         if(bagkey.Tag != tag)
         {
             continue;
         }
 
-        string entrytext = GetLocalString(bag, key);
+        string entrytext = GetLocalString(bag, key.key);
 
         count = count + ObjBagGetCountFromBagEntryText(entrytext);
     }
@@ -652,29 +652,22 @@ int ObjBagRemoveAllItems(object bag, object addTo)
 {
     int vars = NWNX_Object_GetLocalVariableCount(bag);
     int removed = 0;
-    string key;
+    struct NWNX_Object_LocalVariable key;
     int i;
     for(i = 0; i < vars; i++)
     {
         key = NWNX_Object_GetLocalVariable(bag, i);
 
-        if(ObjBagIsBagEntryKey(key) == FALSE)
+        if(ObjBagIsBagEntryKey(key.key) == FALSE)
         {
             continue;
         }
 
-        struct ObjBagKey bagkey = ObjBagParseBagItemKey(key);
-
-        if(bagkey.Tag != tag)
-        {
-            continue;
-        }
-
-        string entrytext = GetLocalString(bag, key);
+        string entrytext = GetLocalString(bag, key.key);
 
         int count = ObjBagGetCountFromBagEntryText(entrytext);
 
-        int taken = ObjBagRemoveItemFromBag(bag, addTo, key, OBJ_INT_MAX);
+        int taken = ObjBagRemoveItemFromBag(bag, addTo, key.key, OBJ_INT_MAX);
 
         removed = removed + taken;
 
@@ -688,11 +681,11 @@ int ObjBagRemoveAllItems(object bag, object addTo)
 
 // Iterates inventory and adds all valid items to the bag until it is full or all valid items are vaccuumed
 // Returns the number of items added to the bag
-int ObjBagVaccuumItemsIntoBag(object container, object bag)
+int ObjBagVacuumItemsIntoBag(object container, object bag)
 {
     object item = GetFirstItemInInventory(container);
     int maxitems = ObjBagGetMaxItemsForBag(bag);
-
+    int currentcount = ObjBagGetCurrentItemsCountInBag(bag);
     int itemsadded = 0;
 
     int addedamount = 0;
@@ -702,6 +695,7 @@ int ObjBagVaccuumItemsIntoBag(object container, object bag)
         {
             addedamount = ObjBagAddItemToBag(bag, item);
             itemsadded = itemsadded + addedamount;
+            currentcount = currentcount + addedamount;
         }
 
         item = GetNextItemInInventory();
@@ -723,9 +717,7 @@ int ObjBagActivated(object player, object bag, object target)
         return TRUE;
     }
 
-    string tag = GetTag(target);
-
-    if(ObjBagIsValidItemForBag(bag, tag) == TRUE)
+    if(ObjBagIsValidItemForBag(bag, target) == TRUE)
     {
         int added = ObjBagAddItemToBag(bag, target);
 

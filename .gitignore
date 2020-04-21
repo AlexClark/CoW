@@ -13,3 +13,4 @@ scripts/*.ncs
 # Exclude any backed up files.
 *.backup
 /.vs
+/utils/nwnsc.exe
